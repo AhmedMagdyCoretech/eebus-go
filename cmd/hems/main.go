@@ -16,8 +16,10 @@ import (
 	"github.com/enbility/eebus-go/api"
 	"github.com/enbility/eebus-go/service"
 	shipapi "github.com/enbility/ship-go/api"
+	spineapi "github.com/enbility/spine-go/api"
 	"github.com/enbility/ship-go/cert"
 	"github.com/enbility/spine-go/model"
+	"github.com/enbility/spine-go/spine"
 )
 
 var remoteSki string
@@ -67,7 +69,7 @@ func (h *hems) run() {
 	configuration, err := api.NewConfiguration(
 		"Demo", "Demo", "HEMS", "123456789",
 		model.DeviceTypeTypeEnergyManagementSystem,
-		[]model.EntityTypeType{model.EntityTypeTypeCEM},
+		[]model.EntityTypeType{model.EntityTypeTypeEVSE},
 		port, certificate, 230, time.Second*4)
 	if err != nil {
 		log.Fatal(err)
@@ -88,13 +90,74 @@ func (h *hems) run() {
 
 	h.myService.RegisterRemoteSKI(remoteSki, true)
 
+	ld := h.myService.LocalDevice()
+	addCem(ld.(*spine.DeviceLocal))
+
 	h.myService.Start()
 	// defer h.myService.Shutdown()
 }
 
 // EEBUSServiceHandler
 
-func (h *hems) RemoteSKIConnected(service api.ServiceInterface, ski string) {}
+func (h *hems) RemoteSKIConnected(service api.ServiceInterface, ski string) {
+	go func(){
+		time.Sleep(10 * time.Second)
+		service.
+			LocalDevice().
+			EntityForType(model.EntityTypeTypeCEM).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl, model.RoleTypeClient).
+			SubscribeToRemote(
+			service.
+			LocalDevice().
+			RemoteDeviceForSki(ski).
+			EntityForType(model.EntityTypeTypeControllableSystem).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl,
+				model.RoleTypeServer).Address())
+			service.
+				LocalDevice().
+				EntityForType(model.EntityTypeTypeCEM).
+				FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl, model.RoleTypeClient).AddResultCallback(func(msg spineapi.ResponseMessage){
+					if msg.Data == nil {
+						return
+					}
+					fmt.Println(msg.Data)
+				})
+			service.
+			LocalDevice().
+			EntityForType(model.EntityTypeTypeCEM).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceConfiguration, model.RoleTypeClient).
+			SubscribeToRemote(
+			service.
+			LocalDevice().
+			RemoteDeviceForSki(ski).
+			EntityForType(model.EntityTypeTypeControllableSystem).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceConfiguration,
+				model.RoleTypeServer).Address())
+		service.
+			LocalDevice().
+			EntityForType(model.EntityTypeTypeCEM).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeClient).
+			SubscribeToRemote(
+			service.
+			LocalDevice().
+			RemoteDeviceForSki(ski).
+			EntityForType(model.EntityTypeTypeControllableSystem).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceDiagnosis,
+				model.RoleTypeServer).Address())
+		service.
+			LocalDevice().
+			EntityForType(model.EntityTypeTypeCEM).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeElectricalConnection, model.RoleTypeClient).
+			SubscribeToRemote(
+			service.
+			LocalDevice().
+			RemoteDeviceForSki(ski).
+			EntityForType(model.EntityTypeTypeControllableSystem).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeElectricalConnection,
+				model.RoleTypeServer).Address())
+	
+	}()
+}
 
 func (h *hems) RemoteSKIDisconnected(service api.ServiceInterface, ski string) {}
 
@@ -195,4 +258,48 @@ func (h *hems) print(msgType string, args ...interface{}) {
 func (h *hems) printFormat(msgType, format string, args ...interface{}) {
 	value := fmt.Sprintf(format, args...)
 	fmt.Println(h.currentTimestamp(), msgType, value)
+}
+
+func addCem(r *spine.DeviceLocal) {
+	entityType := model.EntityTypeTypeCEM
+	entity := r.EntityForType(entityType)
+	if entity == nil {
+		r.AddEntity(spine.NewEntityLocal(r, entityType, []model.AddressEntityType{model.AddressEntityType(2)}))
+		entity = r.EntityForType(entityType)
+	}
+
+	entity.AddUseCaseSupport(model.UseCaseActorTypeCEM, model.UseCaseNameTypeLimitationOfPowerConsumption, "0.0.0", "0", true, []model.UseCaseScenarioSupportType{1,2,3,4})
+
+	{
+		// device diagnosis feature - server
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceDiagnosis,model.RoleTypeServer)
+		f.AddFunctionType(model.FunctionTypeDeviceDiagnosisHeartbeatData, true, false)
+		r.HeartbeatManager().SetLocalFeature(entity, f)
+	}
+
+	{
+		// device diagnosis feature - client
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeLoadControl, model.RoleTypeClient)
+		f.AddFunctionType(model.FunctionTypeLoadControlLimitDescriptionListData, true, false)
+		f.AddFunctionType(model.FunctionTypeLoadControlLimitListData, true, true)
+	}
+
+	{
+		// device diagnosis feature - client
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceConfiguration, model.RoleTypeClient)
+		f.AddFunctionType(model.FunctionTypeDeviceConfigurationKeyValueDescriptionListData, true, false)
+		f.AddFunctionType(model.FunctionTypeDeviceConfigurationKeyValueListData, true, false)
+	}
+
+	{
+		// device diagnosis feature - client
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeClient)
+		f.AddFunctionType(model.FunctionTypeDeviceDiagnosisHeartbeatData, true, false)
+	}
+
+	{
+		// device diagnosis feature - client
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeElectricalConnection, model.RoleTypeClient)
+		f.AddFunctionType(model.FunctionTypeElectricalConnectionCharacteristicListData, true, false)
+	}
 }

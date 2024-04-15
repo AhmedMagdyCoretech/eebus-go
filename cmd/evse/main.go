@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"log"
@@ -18,14 +19,36 @@ import (
 	shipapi "github.com/enbility/ship-go/api"
 	"github.com/enbility/ship-go/cert"
 	"github.com/enbility/spine-go/model"
+	"github.com/enbility/spine-go/spine"
 )
 
 var remoteSki string
 
+type ev struct {
+	Limit 	*model.LoadControlLimitDataType						`json:"limit,omitempty"`
+	LiimitDesc 	*model.LoadControlLimitDescriptionDataType 			`json:"limitDesc,omitempty"`
+	EcChar 	*model.ElectricalConnectionCharacteristicDataType 	`json:"ecChar,omitempty"`
+}
 type evse struct {
 	myService *service.Service
+	evs []*ev
+	nextPrimaryId uint
 }
-
+func (h *evse) addEv(maxConsumption float32) {
+	var e ev
+	json.Unmarshal([]byte(`{
+		"limit":{
+			"limitId": $nextPrimaryId,
+			"isLimitChangeable": true,
+			"isLimitActive": false,
+			"value": {
+				"number": 0,
+				"scale": 0
+			}
+		}
+	}`), &e)
+	h.evs = append(h.evs, )
+}
 func (h *evse) run() {
 	var err error
 	var certificate tls.Certificate
@@ -88,13 +111,45 @@ func (h *evse) run() {
 
 	h.myService.RegisterRemoteSKI(remoteSki, true)
 
+	addControllableSystem(h.myService.LocalDevice().(*spine.DeviceLocal))
 	h.myService.Start()
 	// defer h.myService.Shutdown()
 }
 
 // EEBUSServiceHandler
 
-func (h *evse) RemoteSKIConnected(service api.ServiceInterface, ski string) {}
+func (h *evse) RemoteSKIConnected(service api.ServiceInterface, ski string) {
+	go func(){
+		time.Sleep(10 * time.Second)
+		service.
+			LocalDevice().
+			EntityForType(model.EntityTypeTypeControllableSystem).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeClient).
+			SubscribeToRemote(
+			service.
+			LocalDevice().
+			RemoteDeviceForSki(ski).
+			EntityForType(model.EntityTypeTypeCEM).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceDiagnosis,
+				model.RoleTypeServer).Address())
+		time.Sleep(5 * time.Second)
+		var limitListBytes = []byte(`{ "loadControlLimitData": [
+			{
+				"limitId": 1, 
+				"isLimitChangeable": true,
+				"isLimitActive": true,
+				"value":{ "number": 10, "scale": 1 }
+			}
+		]}`)
+		var limitList *model.LoadControlLimitListDataType
+		json.Unmarshal(limitListBytes,limitList)
+		service.
+			LocalDevice().
+			EntityForType(model.EntityTypeTypeControllableSystem).
+			FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl, model.RoleTypeServer).
+			SetData(model.FunctionTypeLoadControlLimitListData, limitList)
+	}()
+}
 
 func (h *evse) RemoteSKIDisconnected(service api.ServiceInterface, ski string) {}
 
@@ -188,4 +243,48 @@ func (h *evse) print(msgType string, args ...interface{}) {
 func (h *evse) printFormat(msgType, format string, args ...interface{}) {
 	value := fmt.Sprintf(format, args...)
 	fmt.Println(h.currentTimestamp(), msgType, value)
+}
+
+func addControllableSystem(r *spine.DeviceLocal) {
+	entityType := model.EntityTypeTypeControllableSystem
+	entity := r.EntityForType(entityType)
+	if entity == nil {
+		r.AddEntity(spine.NewEntityLocal(r, entityType, []model.AddressEntityType{model.AddressEntityType(2)}))
+		entity = r.EntityForType(entityType)
+	}
+
+	entity.AddUseCaseSupport(model.UseCaseActorTypeControllableSystem, model.UseCaseNameTypeLimitationOfPowerConsumption, "0.0.0", "0", true, []model.UseCaseScenarioSupportType{1,2,3,4})
+
+	{
+		// device diagnosis feature - server
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeServer)
+		f.AddFunctionType(model.FunctionTypeDeviceDiagnosisHeartbeatData, true, false)
+		r.HeartbeatManager().SetLocalFeature(entity, f)
+	}
+
+	{
+		// load control feature - server
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeLoadControl, model.RoleTypeServer)
+		f.AddFunctionType(model.FunctionTypeLoadControlLimitDescriptionListData, true, false)
+		f.AddFunctionType(model.FunctionTypeLoadControlLimitListData, true, false)
+	}
+
+	{
+		// device configuration - server
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceConfiguration, model.RoleTypeServer)
+		f.AddFunctionType(model.FunctionTypeDeviceConfigurationKeyValueDescriptionListData, true, false)
+		f.AddFunctionType(model.FunctionTypeDeviceConfigurationKeyValueListData, true, false)
+	}
+
+	{
+		// electrical connection - server
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeElectricalConnection, model.RoleTypeServer)
+		f.AddFunctionType(model.FunctionTypeElectricalConnectionCharacteristicListData, true, false)
+	}
+
+	{
+		// device diagnosis feature - client
+		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeClient)
+		f.AddFunctionType(model.FunctionTypeDeviceDiagnosisHeartbeatData, true, false)
+	}
 }
