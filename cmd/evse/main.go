@@ -4,7 +4,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
+
+	// "encoding/json"
 	"encoding/pem"
 	"fmt"
 	"log"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/enbility/eebus-go/api"
 	"github.com/enbility/eebus-go/service"
+	"github.com/enbility/eebus-go/usecases"
+	"github.com/enbility/eebus-go/util"
 	shipapi "github.com/enbility/ship-go/api"
 	"github.com/enbility/ship-go/cert"
 	"github.com/enbility/spine-go/model"
@@ -24,31 +27,11 @@ import (
 
 var remoteSki string
 
-type ev struct {
-	Limit 	*model.LoadControlLimitDataType						`json:"limit,omitempty"`
-	LiimitDesc 	*model.LoadControlLimitDescriptionDataType 			`json:"limitDesc,omitempty"`
-	EcChar 	*model.ElectricalConnectionCharacteristicDataType 	`json:"ecChar,omitempty"`
-}
 type evse struct {
-	myService *service.Service
-	evs []*ev
-	nextPrimaryId uint
+	myService     *service.Service
+	myOpevHandler *usecases.OpevHandler
 }
-func (h *evse) addEv(maxConsumption float32) {
-	var e ev
-	json.Unmarshal([]byte(`{
-		"limit":{
-			"limitId": $nextPrimaryId,
-			"isLimitChangeable": true,
-			"isLimitActive": false,
-			"value": {
-				"number": 0,
-				"scale": 0
-			}
-		}
-	}`), &e)
-	h.evs = append(h.evs, )
-}
+
 func (h *evse) run() {
 	var err error
 	var certificate tls.Certificate
@@ -111,7 +94,7 @@ func (h *evse) run() {
 
 	h.myService.RegisterRemoteSKI(remoteSki, true)
 
-	addControllableSystem(h.myService.LocalDevice().(*spine.DeviceLocal))
+	// addEV(h.myService.LocalDevice().(*spine.DeviceLocal))
 	h.myService.Start()
 	// defer h.myService.Shutdown()
 }
@@ -119,35 +102,24 @@ func (h *evse) run() {
 // EEBUSServiceHandler
 
 func (h *evse) RemoteSKIConnected(service api.ServiceInterface, ski string) {
-	go func(){
-		time.Sleep(10 * time.Second)
-		service.
-			LocalDevice().
-			EntityForType(model.EntityTypeTypeControllableSystem).
-			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeClient).
-			SubscribeToRemote(
-			service.
-			LocalDevice().
-			RemoteDeviceForSki(ski).
-			EntityForType(model.EntityTypeTypeCEM).
-			FeatureOfTypeAndRole(model.FeatureTypeTypeDeviceDiagnosis,
-				model.RoleTypeServer).Address())
+	go func() {
 		time.Sleep(5 * time.Second)
-		var limitListBytes = []byte(`{ "loadControlLimitData": [
-			{
-				"limitId": 1, 
-				"isLimitChangeable": true,
-				"isLimitActive": true,
-				"value":{ "number": 10, "scale": 1 }
-			}
-		]}`)
-		var limitList *model.LoadControlLimitListDataType
-		json.Unmarshal(limitListBytes,limitList)
-		service.
-			LocalDevice().
-			EntityForType(model.EntityTypeTypeControllableSystem).
-			FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl, model.RoleTypeServer).
-			SetData(model.FunctionTypeLoadControlLimitListData, limitList)
+		addEV(h.myService.LocalDevice().(*spine.DeviceLocal))
+
+		time.Sleep(5 * time.Second)
+
+		f := service.LocalDevice().EntityForType(model.EntityTypeTypeEV).FeatureOfTypeAndRole(model.FeatureTypeTypeElectricalConnection, model.RoleTypeServer)
+
+		ElecricalConnectionlDescription := &model.ElectricalConnectionParameterDescriptionListDataType{
+			ElectricalConnectionParameterDescriptionData: []model.ElectricalConnectionParameterDescriptionDataType{
+				{
+					ElectricalConnectionId: util.Ptr(model.ElectricalConnectionIdType(3)),
+					ParameterId:            util.Ptr(model.ElectricalConnectionParameterIdType(4)),
+				},
+			},
+		}
+		f.SetData(model.FunctionTypeElectricalConnectionParameterDescriptionListData, ElecricalConnectionlDescription)
+		println("GGEZ")
 	}()
 }
 
@@ -245,46 +217,128 @@ func (h *evse) printFormat(msgType, format string, args ...interface{}) {
 	fmt.Println(h.currentTimestamp(), msgType, value)
 }
 
-func addControllableSystem(r *spine.DeviceLocal) {
-	entityType := model.EntityTypeTypeControllableSystem
-	entity := r.EntityForType(entityType)
-	if entity == nil {
-		r.AddEntity(spine.NewEntityLocal(r, entityType, []model.AddressEntityType{model.AddressEntityType(2)}))
-		entity = r.EntityForType(entityType)
+func addEV(r *spine.DeviceLocal) {
+	entityType := model.EntityTypeTypeEV
+	entity_evse := r.EntityForType(model.EntityTypeTypeEVSE)
+
+	/* Check if EVSE entity is created */
+	if entity_evse == nil {
+		// If not create EVSE Entity
+		entityAddressId := model.AddressEntityType(len(r.Entities()))              // Entity ID
+		entityAddress := []model.AddressEntityType{entityAddressId}                // Entity Address derived from ID
+		entity := spine.NewEntityLocal(r, model.EntityTypeTypeEVSE, entityAddress) // EVSE Entity
+		r.AddEntity(entity)                                                        // Add EVSE Entity to the device
 	}
 
-	entity.AddUseCaseSupport(model.UseCaseActorTypeControllableSystem, model.UseCaseNameTypeLimitationOfPowerConsumption, "0.0.0", "0", true, []model.UseCaseScenarioSupportType{1,2,3,4})
+	// After making sure that EVSE entity is created, create EV entity next
+	entityAddressId := model.AddressEntityType(len(r.Entities()))                   // Entity ID
+	entityAddress := []model.AddressEntityType{entityAddressId}                     // Entity Address derived from ID
+	entity := spine.NewEntityLocal(entity_evse.Device(), entityType, entityAddress) // EV Entity
+	r.AddEntity(entity)                                                             // Add EV Entity to the device
+	entity_evse.Address().Entity = append(entity_evse.Address().Entity, entityAddressId)
+
+	/* Add * EV Commissioning & Configuration * UseCase */
+	entity.AddUseCaseSupport(model.UseCaseActorTypeEV, model.UseCaseNameTypeEVCommissioningAndConfiguration, "0.0.0", "0",
+		true, []model.UseCaseScenarioSupportType{1, 6, 8})
+
+	/* Add * Overload Protection by EV Charging Current Curtailment * UseCase */
+	entity.AddUseCaseSupport(model.UseCaseActorTypeEV, model.UseCaseNameTypeOverloadProtectionByEVChargingCurrentCurtailment,
+		"0.0.0", "0", true, []model.UseCaseScenarioSupportType{1})
 
 	{
-		// device diagnosis feature - server
-		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeServer)
-		f.AddFunctionType(model.FunctionTypeDeviceDiagnosisHeartbeatData, true, false)
-		r.HeartbeatManager().SetLocalFeature(entity, f)
+		/** electrical connection feature - server **/
+		f := spine.NewFeatureLocal(entity.NextFeatureId(), entity, model.FeatureTypeTypeElectricalConnection, model.RoleTypeServer)
+
+		/** Electrical Connection Parameter Description Function **/
+		f.AddFunctionType(model.FunctionTypeElectricalConnectionParameterDescriptionListData, true, false)
+		ElecricalConnectionlDescription := &model.ElectricalConnectionParameterDescriptionListDataType{
+			ElectricalConnectionParameterDescriptionData: []model.ElectricalConnectionParameterDescriptionDataType{
+				{
+					ElectricalConnectionId: util.Ptr(model.ElectricalConnectionIdType(1)),
+					ParameterId:            util.Ptr(model.ElectricalConnectionParameterIdType(2)),
+					MeasurementId:          util.Ptr(model.MeasurementIdType(2)),
+					AcMeasuredPhases:       util.Ptr(model.ElectricalConnectionPhaseNameTypeAbc),
+					ScopeType:              util.Ptr(model.ScopeTypeTypeACPowerTotal),
+				},
+			},
+		}
+		f.SetData(model.FunctionTypeElectricalConnectionParameterDescriptionListData, ElecricalConnectionlDescription)
+
+		/** Electrical Connection Permitted Value Set Function **/
+		f.AddFunctionType(model.FunctionTypeElectricalConnectionPermittedValueSetListData, true, false)
+		// Permitted value set to be added
+		permittedValue := model.ScaledNumberSetType{
+			Range: []model.ScaledNumberRangeType{
+				{
+					Min: util.Ptr(model.ScaledNumberType{
+						Number: util.Ptr(model.NumberType(1)),
+					}),
+					Max: util.Ptr(model.ScaledNumberType{
+						Number: util.Ptr(model.NumberType(5)),
+					}),
+				},
+			},
+			Value: []model.ScaledNumberType{
+				{
+					Number: util.Ptr(model.NumberType(3)),
+					Scale:  util.Ptr(model.ScaleType(0)),
+				},
+			},
+		}
+		// Electrical Connection Value
+		ElecricalConnectionlPermittedValue := &model.ElectricalConnectionPermittedValueSetListDataType{
+			ElectricalConnectionPermittedValueSetData: []model.ElectricalConnectionPermittedValueSetDataType{
+				{
+					ElectricalConnectionId: util.Ptr(model.ElectricalConnectionIdType(1)),
+					ParameterId:            util.Ptr(model.ElectricalConnectionParameterIdType(2)),
+					PermittedValueSet:      []model.ScaledNumberSetType{permittedValue},
+				},
+			},
+		}
+		f.SetData(model.FunctionTypeElectricalConnectionPermittedValueSetListData, ElecricalConnectionlPermittedValue)
+
+		/** Add the feature to the entity **/
+		entity.AddFeature(f)
 	}
-
 	{
-		// load control feature - server
-		f := entity.GetOrAddFeature(model.FeatureTypeTypeLoadControl, model.RoleTypeServer)
+		/** load control feature - server **/
+		f := spine.NewFeatureLocal(entity.NextFeatureId(), entity, model.FeatureTypeTypeLoadControl, model.RoleTypeServer)
+
+		/** load control limit description Function **/
 		f.AddFunctionType(model.FunctionTypeLoadControlLimitDescriptionListData, true, false)
-		f.AddFunctionType(model.FunctionTypeLoadControlLimitListData, true, false)
-	}
+		LoadControlDescription := &model.LoadControlLimitDescriptionListDataType{
+			LoadControlLimitDescriptionData: []model.LoadControlLimitDescriptionDataType{
+				{
+					LimitId:       util.Ptr(model.LoadControlLimitIdType(1)),
+					LimitType:     util.Ptr(model.LoadControlLimitTypeTypeMaxValueLimit),
+					LimitCategory: util.Ptr(model.LoadControlCategoryTypeObligation),
+					MeasurementId: util.Ptr(model.MeasurementIdType(2)),
+					Unit:          util.Ptr(model.UnitOfMeasurementTypeA),
+					ScopeType:     util.Ptr(model.ScopeTypeTypeOverloadProtection),
+				},
+			},
+		}
+		f.SetData(model.FunctionTypeLoadControlLimitDescriptionListData, LoadControlDescription)
 
-	{
-		// device configuration - server
-		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceConfiguration, model.RoleTypeServer)
-		f.AddFunctionType(model.FunctionTypeDeviceConfigurationKeyValueDescriptionListData, true, false)
-		f.AddFunctionType(model.FunctionTypeDeviceConfigurationKeyValueListData, true, false)
-	}
+		/** load control limit data Function **/
+		f.AddFunctionType(model.FunctionTypeLoadControlLimitListData, true, true)
 
-	{
-		// electrical connection - server
-		f := entity.GetOrAddFeature(model.FeatureTypeTypeElectricalConnection, model.RoleTypeServer)
-		f.AddFunctionType(model.FunctionTypeElectricalConnectionCharacteristicListData, true, false)
-	}
+		LoadControlData := &model.LoadControlLimitListDataType{
+			LoadControlLimitData: []model.LoadControlLimitDataType{
+				{
+					LimitId:           util.Ptr(model.LoadControlLimitIdType(1)),
+					IsLimitChangeable: util.Ptr(true),
+					IsLimitActive:     util.Ptr(true),
+					Value: &model.ScaledNumberType{
+						Number: util.Ptr(model.NumberType(2)),
+						Scale:  util.Ptr(model.ScaleType(0)),
+					},
+				},
+			},
+		}
+		f.SetData(model.FunctionTypeLoadControlLimitListData, LoadControlData)
 
-	{
-		// device diagnosis feature - client
-		f := entity.GetOrAddFeature(model.FeatureTypeTypeDeviceDiagnosis, model.RoleTypeClient)
-		f.AddFunctionType(model.FunctionTypeDeviceDiagnosisHeartbeatData, true, false)
+		/** Add the feature to the entity **/
+		entity.AddFeature(f)
 	}
 }

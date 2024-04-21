@@ -7,7 +7,8 @@ require (
 	github.com/enbility/spine-go v0.0.0-20240313120235-e9eec2c46534
 	github.com/stretchr/testify v1.8.4
 )
-replace github.com/enbility/spine-go => ../spine-go
+
+// replace github.com/enbility/spine-go => ../spine-go
 require (
 	github.com/ahmetb/go-linq/v3 v3.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -34,3 +35,7 @@ retract (
 	v0.2.2 // Contains retractions only.
 	v0.2.1 // Published accidentally.
 )
+
+replace github.com/enbility/spine-go => ../spine-go
+
+replace github.com/enbility/ship-go => ../ship-go
