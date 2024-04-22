@@ -14,15 +14,15 @@ import (
 	"time"
 
 	"github.com/enbility/eebus-go/api"
-	// "github.com/enbility/eebus-go/features"
+	"github.com/enbility/eebus-go/cmd/usecases"
 	"github.com/enbility/eebus-go/service"
 	shipapi "github.com/enbility/ship-go/api"
 	"github.com/enbility/ship-go/cert"
-	spineapi "github.com/enbility/spine-go/api"
 
-	"github.com/enbility/eebus-go/util"
+	// spineapi "github.com/enbility/spine-go/api"
+
+	// "github.com/enbility/eebus-go/util"
 	"github.com/enbility/spine-go/model"
-	"github.com/enbility/spine-go/spine"
 )
 
 var remoteSki string
@@ -30,7 +30,8 @@ var remoteSki string
 var AvailablePower model.NumberType
 
 type hems struct {
-	myService *service.Service
+	myService     *service.Service
+	myOpevHandler *usecases.OpevHandler
 }
 
 func (h *hems) run() {
@@ -95,129 +96,57 @@ func (h *hems) run() {
 
 	h.myService.RegisterRemoteSKI(remoteSki, true)
 
-	ld := h.myService.LocalDevice()
-	addCem(ld.(*spine.DeviceLocal))
+	h.myOpevHandler = usecases.NewOpevHandler(model.UseCaseActorTypeCEM, h.myService.LocalDevice())
 
 	h.myService.Start()
 	// defer h.myService.Shutdown()
 }
 
-// EEBUSServiceHandler
-func (h *hems) HandleEvent(payload spineapi.EventPayload) {
-	if payload.CmdClassifier != nil && *payload.CmdClassifier == model.CmdClassifierTypeNotify {
-		println(payload.Feature.Type())
-	}
-}
-
 func (h *hems) RemoteSKIConnected(service api.ServiceInterface, ski string) {
-	/* Configuration */
-	spine.Events.Subscribe(h)
+	// go func() {
+	// 	// Load Control ( Local )
+	// 	local_load_control_feature := service.LocalDevice().FeatureByAddress(
+	// 		service.LocalDevice().
+	// 			EntityForType(model.EntityTypeTypeCEM).
+	// 			FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl, model.RoleTypeClient).Address())
 
-	go func() {
+	// 	// Load Control ( Remote )
+	// 	remote_load_control_feature := service.LocalDevice().RemoteDeviceForSki(ski).FeatureByAddress(service.LocalDevice().RemoteDeviceForSki(ski).
+	// 		EntityForType(model.EntityTypeTypeEV).
+	// 		FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl,
+	// 			model.RoleTypeServer).Address())
 
-		/*====================================================================== TESTING ======================================================================*/
+	// 	/*========================================================== Runtime Scenario Communication ==========================================================*/
 
-		/*============================================================ Pre Scenario Communication =============================================================*/
+	// 	// Wait for some time
+	// 	time.Sleep(7 * time.Second)
 
-		// Wait for some time
-		time.Sleep(6 * time.Second)
+	// 	// Create cmd to be sent
+	// 	cmd := model.CmdType{
+	// 		LoadControlLimitListData: &model.LoadControlLimitListDataType{
+	// 			LoadControlLimitData: []model.LoadControlLimitDataType{
+	// 				{
+	// 					Value: &model.ScaledNumberType{
+	// 						Number: util.Ptr(model.NumberType(3)),
+	// 						Scale:  util.Ptr(model.ScaleType(0)),
+	// 					},
+	// 				},
+	// 			},
+	// 		},
+	// 	}
 
-		// Electrical Connection ( Local )
-		local_electrical_connection_feature := service.LocalDevice().FeatureByAddress(
-			service.LocalDevice().
-				EntityForType(model.EntityTypeTypeCEM).
-				FeatureOfTypeAndRole(model.FeatureTypeTypeElectricalConnection, model.RoleTypeClient).Address())
+	// 	// Write the updated cmd and save the MSG Counter to be used in CallBack later
+	// 	counter, _ := remote_load_control_feature.Device().Sender().Write(local_load_control_feature.Address(),
+	// 		remote_load_control_feature.Address(), cmd)
 
-		// Electrical Connection ( Remote )
-		remote_electrical_connection_feature := service.LocalDevice().RemoteDeviceForSki(ski).FeatureByAddress(service.LocalDevice().RemoteDeviceForSki(ski).
-			EntityForType(model.EntityTypeTypeEV).
-			FeatureOfTypeAndRole(model.FeatureTypeTypeElectricalConnection,
-				model.RoleTypeServer).Address())
-
-		// Load Control ( Local )
-		local_load_control_feature := service.LocalDevice().FeatureByAddress(
-			service.LocalDevice().
-				EntityForType(model.EntityTypeTypeCEM).
-				FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl, model.RoleTypeClient).Address())
-
-		// Load Control ( Remote )
-		remote_load_control_feature := service.LocalDevice().RemoteDeviceForSki(ski).FeatureByAddress(service.LocalDevice().RemoteDeviceForSki(ski).
-			EntityForType(model.EntityTypeTypeEV).
-			FeatureOfTypeAndRole(model.FeatureTypeTypeLoadControl,
-				model.RoleTypeServer).Address())
-
-		// Bind Load Control Feature
-		track_counter, _ := local_load_control_feature.BindToRemote(remote_load_control_feature.Address())
-
-		/*========================================================== Initial Scenario Communication ==========================================================*/
-
-		service.LocalDevice().NodeManagement().AddResultCallback(func(msg spineapi.ResponseMessage) {
-			if msg.MsgCounterReference == *track_counter {
-				// LoadControlLimitDescriptionListData (read, reply)
-				track_counter, _ = local_load_control_feature.RequestRemoteData(model.FunctionTypeLoadControlLimitDescriptionListData, nil,
-					nil, remote_load_control_feature)
-			}
-		})
-
-		local_load_control_feature.AddResponseCallback(*track_counter+1, func(msg spineapi.ResponseMessage) {
-			// LoadControlLimitListData (read, reply)
-			track_counter, _ = local_load_control_feature.RequestRemoteData(model.FunctionTypeLoadControlLimitListData, nil,
-				nil, remote_load_control_feature)
-		})
-
-		local_load_control_feature.AddResponseCallback(*track_counter+2, func(msg spineapi.ResponseMessage) {
-			// ElectricalConnectionParameterDescriptionListDat (read, reply)
-			track_counter, _ = local_electrical_connection_feature.RequestRemoteData(model.FunctionTypeElectricalConnectionParameterDescriptionListData, nil,
-				nil, remote_electrical_connection_feature)
-		})
-
-		local_electrical_connection_feature.AddResponseCallback(*track_counter+3, func(msg spineapi.ResponseMessage) {
-			// ElectricalConnectionPermittedValueSetListData (read, reply)
-			track_counter, _ = local_electrical_connection_feature.RequestRemoteData(model.FunctionTypeElectricalConnectionPermittedValueSetListData, nil,
-				nil, remote_electrical_connection_feature)
-		})
-
-		/*============================================================ Post Scenario Communication ===========================================================*/
-
-		local_electrical_connection_feature.AddResponseCallback(*track_counter+4, func(msg spineapi.ResponseMessage) {
-			// Make local LoadControl subscribe to remote LoadControl
-			local_load_control_feature.SubscribeToRemote(remote_load_control_feature.Address())
-
-			// Make local ElectricalConnection subscribe to remote ElectricalConnection
-			local_electrical_connection_feature.SubscribeToRemote(remote_electrical_connection_feature.Address())
-		})
-
-		/*========================================================== Runtime Scenario Communication ==========================================================*/
-
-		// Wait for some time
-		time.Sleep(7 * time.Second)
-
-		// Create cmd to be sent
-		cmd := model.CmdType{
-			LoadControlLimitListData: &model.LoadControlLimitListDataType{
-				LoadControlLimitData: []model.LoadControlLimitDataType{
-					{
-						Value: &model.ScaledNumberType{
-							Number: util.Ptr(model.NumberType(3)),
-							Scale:  util.Ptr(model.ScaleType(0)),
-						},
-					},
-				},
-			},
-		}
-
-		// Write the updated cmd and save the MSG Counter to be used in CallBack later
-		counter, _ := remote_load_control_feature.Device().Sender().Write(local_load_control_feature.Address(),
-			remote_load_control_feature.Address(), cmd)
-
-		// Add CallBack for the previous write operation with the saved MSG Counter
-		local_load_control_feature.AddResponseCallback(*counter, func(msg spineapi.ResponseMessage) {
-			fmt.Println("GGEZ1")
-			if msg.Data == nil {
-				return
-			}
-		})
-	}()
+	// 	// Add CallBack for the previous write operation with the saved MSG Counter
+	// 	local_load_control_feature.AddResponseCallback(*counter, func(msg spineapi.ResponseMessage) {
+	// 		fmt.Println("GGEZ1")
+	// 		if msg.Data == nil {
+	// 			return
+	// 		}
+	// 	})
+	// }()
 }
 
 func (h *hems) RemoteSKIDisconnected(service api.ServiceInterface, ski string) {}
@@ -319,41 +248,4 @@ func (h *hems) print(msgType string, args ...interface{}) {
 func (h *hems) printFormat(msgType, format string, args ...interface{}) {
 	value := fmt.Sprintf(format, args...)
 	fmt.Println(h.currentTimestamp(), msgType, value)
-}
-
-func addCem(r *spine.DeviceLocal) {
-	entityType := model.EntityTypeTypeCEM
-	entity := r.EntityForType(entityType)
-
-	/* Check if EVSE entity is created */
-	if entity == nil {
-		// If not create EVSE Entity
-		entityAddressId := model.AddressEntityType(len(r.Entities())) // Entity ID
-		entityAddress := []model.AddressEntityType{entityAddressId}   // Entity Address derived from ID
-		entity = spine.NewEntityLocal(r, entityType, entityAddress)   // CEM Entity
-		r.AddEntity(entity)                                           // Add CEM Entity to the device
-	}
-
-	/* Add * EV Commissioning & Configuration * UseCase */
-	entity.AddUseCaseSupport(model.UseCaseActorTypeCEM, model.UseCaseNameTypeEVCommissioningAndConfiguration, "0.0.0", "0",
-		true, []model.UseCaseScenarioSupportType{1, 6, 8})
-
-	/* Add * Overload Protection by EV Charging Current Curtailment * UseCase */
-	entity.AddUseCaseSupport(model.UseCaseActorTypeCEM, model.UseCaseNameTypeOverloadProtectionByEVChargingCurrentCurtailment,
-		"0.0.0", "0", true, []model.UseCaseScenarioSupportType{1})
-
-	{
-		/** electrical connection feature - client **/
-		f := spine.NewFeatureLocal(entity.NextFeatureId(), entity, model.FeatureTypeTypeElectricalConnection, model.RoleTypeClient)
-
-		/** Add the feature to the entity **/
-		entity.AddFeature(f)
-	}
-	{
-		/** electrical connection feature - client **/
-		f := spine.NewFeatureLocal(entity.NextFeatureId(), entity, model.FeatureTypeTypeLoadControl, model.RoleTypeClient)
-
-		/** Add the feature to the entity **/
-		entity.AddFeature(f)
-	}
 }
