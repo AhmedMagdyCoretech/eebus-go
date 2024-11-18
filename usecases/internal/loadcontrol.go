@@ -109,6 +109,10 @@ func LoadControlLimits(
 		result = append(result, newLimit)
 	}
 
+	if len(result) == 0 {
+		return nil, api.ErrDataNotAvailable
+	}
+
 	return result, nil
 }
 
