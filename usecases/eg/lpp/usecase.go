@@ -92,5 +92,8 @@ func (e *LPP) AddFeatures() {
 }
 
 func (e *LPP) UpdateUseCaseAvailability(available bool) {
-	e.LocalEntity.SetUseCaseAvailability(model.UseCaseActorTypeEnergyGuard, e.UseCaseName, available)
+	e.LocalEntity.SetUseCaseAvailability(model.UseCaseFilterType{
+		Actor:       model.UseCaseActorTypeEnergyGuard,
+		UseCaseName: e.UseCaseName,
+	}, available)
 }

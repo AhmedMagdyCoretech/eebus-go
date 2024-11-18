@@ -92,11 +92,21 @@ func (u *UseCaseBase) AddUseCase() {
 }
 
 func (u *UseCaseBase) RemoveUseCase() {
-	u.LocalEntity.RemoveUseCaseSupport(u.UseCaseActor, u.UseCaseName)
+	u.LocalEntity.RemoveUseCaseSupports(
+		[]model.UseCaseFilterType{
+			{
+				Actor:       u.UseCaseActor,
+				UseCaseName: u.UseCaseName,
+			},
+		})
 }
 
 func (u *UseCaseBase) UpdateUseCaseAvailability(available bool) {
-	u.LocalEntity.SetUseCaseAvailability(u.UseCaseActor, u.UseCaseName, available)
+	u.LocalEntity.SetUseCaseAvailability(
+		model.UseCaseFilterType{
+			Actor:       u.UseCaseActor,
+			UseCaseName: u.UseCaseName,
+		}, available)
 }
 
 func (u *UseCaseBase) IsCompatibleEntityType(entity spineapi.EntityRemoteInterface) bool {

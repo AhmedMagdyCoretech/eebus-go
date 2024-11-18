@@ -70,5 +70,8 @@ func (e *EVSOC) AddFeatures() {
 }
 
 func (e *EVSOC) UpdateUseCaseAvailability(available bool) {
-	e.LocalEntity.SetUseCaseAvailability(model.UseCaseActorTypeCEM, e.UseCaseName, available)
+	e.LocalEntity.SetUseCaseAvailability(model.UseCaseFilterType{
+		Actor:       model.UseCaseActorTypeCEM,
+		UseCaseName: e.UseCaseName,
+	}, available)
 }
