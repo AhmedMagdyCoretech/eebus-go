@@ -65,6 +65,7 @@ func (e *OSCEV) LoadControlLimits(entity spineapi.EntityRemoteInterface) (
 	filter := model.LoadControlLimitDescriptionDataType{
 		LimitType:     util.Ptr(model.LoadControlLimitTypeTypeMaxValueLimit),
 		LimitCategory: util.Ptr(model.LoadControlCategoryTypeRecommendation),
+		Unit:          util.Ptr(model.UnitOfMeasurementTypeA),
 		ScopeType:     util.Ptr(model.ScopeTypeTypeSelfConsumption),
 	}
 	return internal.LoadControlLimits(e.LocalEntity, entity, filter)
