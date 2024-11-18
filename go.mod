@@ -3,8 +3,8 @@ module github.com/enbility/eebus-go
 go 1.22.0
 
 require (
-	github.com/enbility/ship-go v0.0.0-20241006160314-3a4325a1a6d6
-	github.com/enbility/spine-go v0.0.0-20241007182100-30ee8bc405a7
+	github.com/enbility/ship-go v0.0.0-20241118140853-3ca32da90271
+	github.com/enbility/spine-go v0.0.0-20241111100323-fb7dc01d0064
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/exp/jsonrpc2 v0.0.0-20240909161429-701f63a606c0
 )
@@ -38,3 +38,5 @@ retract (
 	v0.2.2 // Contains retractions only.
 	v0.2.1 // Published accidentally.
 )
+
+replace github.com/enbility/spine-go => ../spine-go
