@@ -35,5 +35,5 @@ const (
 	// E.g. going into or out of the Failsafe state
 	//
 	// Use Case LPP, Scenario 3
-	DataUpdateHeartbeat api.EventType = "cs-lpp-DataUpdateHeartbeat"
+	DataUpdateHeartbeat api.EventType = "eg-lpp-DataUpdateHeartbeat"
 )
